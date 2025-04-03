@@ -1,4 +1,4 @@
-version: '3.9'
+#version: '3.9'
 
 services:
   traefik:
@@ -23,9 +23,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
   n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
+    image: docker.n8n.io/n8nio/n8n:1.85.4
     restart: always
-    network_mode: host  # Для доступа к локальному PostgreSQL
+#    network_mode: host  # Для доступа к локальному PostgreSQL
     labels:
       - traefik.enable=true
       - traefik.http.routers.n8n.rule=Host(`${SUBDOMAIN}.${DOMAIN_NAME}`)
@@ -53,14 +53,18 @@ services:
       - DB_POSTGRESDB_DATABASE=${DB_NAME}
       - DB_POSTGRESDB_USER=${DB_USER}
       - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD}
-      - DB_POSTGRESDB_HOST=${DB_HOST:-localhost}
-      - DB_POSTGRESDB_PORT=${DB_PORT:-5432}
+      - DB_POSTGRESDB_HOST=${DB_HOST}
+      - DB_POSTGRESDB_PORT=${DB_PORT}
 
       # Дополнительные настройки
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${BASIC_AUTH_USER}
       - N8N_BASIC_AUTH_PASSWORD=${BASIC_AUTH_PASSWORD}
-
+    ports:
+      - 5678:5678
+    volumes:
+      - n8n_data:/home/node/.n8n
 volumes:
   traefik_data:
     external: true
+  n8n_data:
