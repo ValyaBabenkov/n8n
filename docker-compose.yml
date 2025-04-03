@@ -19,10 +19,10 @@ services:
       - traefik.http.middlewares.n8n-headers.headers.contenttypenosniff=true
       - traefik.http.routers.n8n.middlewares=n8n-headers
     environment:
-      - N8N_HOST=${SUBDOMAIN}.${DOMAIN_NAME}
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://${SUBDOMAIN}.${DOMAIN_NAME}
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=${N8N_PORT}
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=https://${N8N_HOST}/
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_DATABASE=${DB_NAME}
@@ -30,11 +30,9 @@ services:
       - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD}
       - DB_POSTGRESDB_HOST=${DB_HOST}
       - DB_POSTGRESDB_PORT=${DB_PORT}
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${BASIC_AUTH_USER}
-      - N8N_BASIC_AUTH_PASSWORD=${BASIC_AUTH_PASSWORD}
-    ports:
-      - 5678:5678
+#      - N8N_BASIC_AUTH_ACTIVE=true
+#      - N8N_BASIC_AUTH_USER=${BASIC_AUTH_USER}
+#      - N8N_BASIC_AUTH_PASSWORD=${BASIC_AUTH_PASSWORD}
     volumes:
       - n8n_data:/home/node/.n8n
 volumes:
