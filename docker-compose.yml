@@ -7,11 +7,11 @@ x-shared: &shared
   restart: always
   environment:
     - DB_TYPE=postgresdb
-    - DB_POSTGRESDB_HOST=postgres
-    - DB_POSTGRESDB_PORT=5432
+    - DB_POSTGRESDB_HOST=${POSTGRES_HOST}
+    - DB_POSTGRESDB_PORT=${POSTGRES_PORT}
     - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
-    - DB_POSTGRESDB_USER=${POSTGRES_NON_ROOT_USER}
-    - DB_POSTGRESDB_PASSWORD=${POSTGRES_NON_ROOT_PASSWORD}
+    - DB_POSTGRESDB_USER=${POSTGRES_USER}
+    - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
     - N8N_BASIC_AUTH_ACTIVE=true
     - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
     - N8N_HOST=${N8N_HOST}
@@ -27,37 +27,16 @@ x-shared: &shared
     - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
     - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
   links:
-    - postgres
     - redis
   volumes:
     - n8n_storage:/home/node/.n8n
   depends_on:
     redis:
       condition: service_healthy
-    postgres:
-      condition: service_healthy
+#    postgres:
+#      condition: service_healthy
 
 services:
-  postgres:
-    image: postgres:17
-    restart: always
-    environment:
-      - POSTGRES_USER
-      - POSTGRES_PASSWORD
-      - POSTGRES_DB
-      - POSTGRES_NON_ROOT_USER
-      - POSTGRES_NON_ROOT_PASSWORD
-    ports:
-      - "127.0.0.1:54322:5432"
-    volumes:
-      - db_storage:/var/lib/postgresql/data
-      - ./init-data.sh:/docker-entrypoint-initdb.d/init-data.sh
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   redis:
     image: redis:7-alpine
     restart: always
