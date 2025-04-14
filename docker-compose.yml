@@ -1,9 +1,7 @@
-#version: '3.8'
-
 volumes:
   db_storage:
   n8n_storage:
-  redis_storage:
+#  redis_storage:
   traefik_data:
   ollama_storage:
   qdrant_storage:
@@ -15,28 +13,31 @@ x-shared: &shared
   restart: always
   networks: ['demo']
   environment:
+# --- Переменные окружения PostgreSQL (должны указывать на ВНЕШНИЙ сервер) ---
     - DB_TYPE=postgresdb
-    - DB_POSTGRESDB_HOST=${POSTGRES_HOST}
-    - DB_POSTGRESDB_PORT=${POSTGRES_PORT}
-    - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
-    - DB_POSTGRESDB_USER=${POSTGRES_USER}
-    - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+    - DB_POSTGRESDB_HOST=${POSTGRES_HOST} # <-- IP-адрес или хостнейм твоего внешнего сервера Postgres
+    - DB_POSTGRESDB_PORT=${POSTGRES_PORT} # <-- Порт твоего внешнего сервера Postgres (обычно 5432)
+    - DB_POSTGRESDB_DATABASE=${POSTGRES_DB} # <-- Имя БД на внешнем сервере
+    - DB_POSTGRESDB_USER=${POSTGRES_USER} # <-- Имя пользователя на внешнем сервере
+    - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD} # <-- Пароль пользователя на внешнем сервере
     - N8N_BASIC_AUTH_ACTIVE=true
-    - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-    - N8N_HOST=${N8N_HOST}
-    - N8N_PROTOCOL=${N8N_PROTOCOL}
-    - N8N_RUNNERS_ENABLED=${N8N_RUNNERS_ENABLED}
-    - NODE_ENV=${NODE_ENV}
+    - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY} # Очень важно задать и не терять!
+    - N8N_HOST=${N8N_HOST} # Например, n8n.localhost или n8n.yourdomain.com
+    - N8N_PROTOCOL=${N8N_PROTOCOL} # http или https
+    - N8N_RUNNERS_ENABLED=true
+    - NODE_ENV=${NODE_ENV} # например, production
     - WEBHOOK_URL=${N8N_PROTOCOL}://${N8N_HOST}/
-    - WEBHOOK_TUNNEL_URL=${N8N_PROTOCOL}://${N8N_HOST}/
-    - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
-    - EXECUTIONS_MODE=queue
-    - QUEUE_BULL_REDIS_HOST=redis
+    - GENERIC_TIMEZONE=${GENERIC_TIMEZONE} # например, Europe/Vienna
+    - EXECUTIONS_MODE=regular #queue
+#    - QUEUE_BULL_REDIS_HOST=redis
     - QUEUE_HEALTH_CHECK_ACTIVE=true
     - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
     - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
   depends_on:
-    - redis
+#    redis:
+#      condition: service_healthy
+    postgres:
+      condition: service_healthy
 
 x-service-ollama: &service-ollama
   image: ollama/ollama:latest
@@ -53,47 +54,61 @@ x-init-ollama: &init-ollama
   volumes:
     - ollama_storage:/root/.ollama
   entrypoint: /bin/sh
-  environment:
-    - OLLAMA_HOST=ollama:11434
   command:
     - "-c"
-    - "sleep 10; ollama pull llama3.2"
-
+    - "sleep 3; ollama pull qwen2.5:7b-instruct-q4_K_M; ollama pull nomic-embed-text"
+    # For a larger context length verison of the model, run these commands:
+    # echo "FROM qwen2.5:7b-instruct-q4_K_M\n\nPARAMETER num_ctx 8096" > Modelfile
+    # ollama create qwen2.5:7b-8k -f ./Modelfile
+    # Change the name of the LLM and num_ctx as you see fit.
 services:
   traefik:
     image: traefik:v2.10
     restart: always
     command:
       - "--api=true"
-      - "--api.insecure=true"
+      - "--api.insecure=true" # Для локальной разработки
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
-      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.mytlschallenge.acme.tlschallenge=true"
-      - "--certificatesresolvers.mytlschallenge.acme.email=${SSL_EMAIL}"
-      - "--certificatesresolvers.mytlschallenge.acme.storage=/letsencrypt/acme.json"
     ports:
-      - "8080:80"
-      - "8443:443"
+      - "80:80"   # Порт для HTTP трафика к n8n
     volumes:
-      - traefik_data:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: ['demo']
 
-  redis:
-    image: redis:7-alpine
+  postgres:
+    image: pgvector/pgvector:pg16 # Используем образ с pgvector (укажи pg15, pg14 если нужно)
+    container_name: postgres_db # Явное имя контейнера
     restart: always
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB} # Имя базы данных n8n
+      - POSTGRES_USER=${POSTGRES_USER} # Пользователь для n8n
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD} # Пароль для n8n
+    ports:
+      - "5433:5432"
     volumes:
-      - redis_storage:/data
+      - db_storage:/var/lib/postgresql/data # Сохраняем данные БД
+      - ./postgres-init:/docker-entrypoint-initdb.d # <-- Запускаем скрипты инициализации
     networks: ['demo']
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+    healthcheck: # Проверка работоспособности
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+
+#  redis:
+#    image: redis:7-alpine
+#    restart: always
+#    volumes:
+#      - redis_storage:/data
+#    networks: ['demo']
+#    healthcheck:
+#      test: ['CMD', 'redis-cli', 'ping']
+#      interval: 5s
+#      timeout: 5s
+#      retries: 10
 
   qdrant:
     image: qdrant/qdrant
@@ -102,7 +117,7 @@ services:
     networks: ['demo']
     restart: unless-stopped
     environment:
-     - QDRANT__SERVICE__API_KEY=${QDRANT__SERVICE__API_KEY}
+      - QDRANT__SERVICE__API_KEY=${QDRANT__SERVICE__API_KEY} # Опционально
     ports:
       - 6333:6333
     volumes:
@@ -122,7 +137,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: 1 # или 'all'
               capabilities: [gpu]
 
   ollama-gpu-amd:
@@ -138,6 +153,8 @@ services:
     profiles: ["cpu"]
     <<: *init-ollama
     container_name: ollama-pull-cpu
+    environment:
+      - OLLAMA_HOST=ollama-cpu:11434
     depends_on:
       ollama-cpu:
         condition: service_started
@@ -146,6 +163,8 @@ services:
     profiles: ["gpu-nvidia"]
     <<: *init-ollama
     container_name: ollama-pull-gpu
+    environment:
+      - OLLAMA_HOST=ollama-cpu:11434
     depends_on:
       ollama-gpu:
         condition: service_started
@@ -155,6 +174,8 @@ services:
     <<: *init-ollama
     container_name: ollama-pull-amd
     image: ollama/ollama:rocm
+    environment:
+      - OLLAMA_HOST=ollama-cpu:11434
     depends_on:
       ollama-gpu-amd:
         condition: service_started
@@ -162,28 +183,30 @@ services:
   n8n:
     <<: *shared
     image: docker.n8n.io/n8nio/n8n:1.85.4
+    container_name: n8n_main
     command: start
     labels:
       - traefik.enable=true
       - traefik.http.routers.n8n.rule=Host(`${N8N_HOST}`)
-      - traefik.http.routers.n8n.tls=true
-      - traefik.http.routers.n8n.entrypoints=websecure
-      - traefik.http.routers.n8n.tls.certresolver=mytlschallenge
-      - traefik.http.middlewares.n8n.headers.SSLRedirect=true
-      - traefik.http.middlewares.n8n.headers.STSSeconds=315360000
-      - traefik.http.middlewares.n8n.headers.browserXSSFilter=true
-      - traefik.http.middlewares.n8n.headers.contentTypeNosniff=true
-      - traefik.http.middlewares.n8n.headers.forceSTSHeader=true
-      - traefik.http.middlewares.n8n.headers.SSLHost=${N8N_HOST}
-      - traefik.http.middlewares.n8n.headers.STSIncludeSubdomains=true
-      - traefik.http.middlewares.n8n.headers.STSPreload=true
-      - traefik.http.routers.n8n.middlewares=n8n@docker
+      - traefik.http.routers.n8n.entrypoints=web
     volumes:
       - n8n_storage:/home/node/.n8n
+      - ./n8n/backup:/backup
+      - ./shared:/data/shared
+    depends_on: []
+#      - redis
 
   n8n-worker-1:
     <<: *shared
-    image: n8nio/n8n:1.85.4
+    image: docker.n8n.io/n8nio/n8n:1.85.4
+    container_name: n8n_worker_1
     command: worker
-    depends_on:
-      - n8n
+    volumes:
+      - ./shared:/data/shared # Если нужен доступ к общим файлам
+    depends_on: # Дожидаемся не только БД и Redis (из *shared), но и основной n8n
+      postgres:
+        condition: service_healthy
+      n8n:
+        condition: service_healthy
+#      redis:
+#        condition: service_healthy
